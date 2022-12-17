@@ -26,7 +26,7 @@ class SyncProjectTelegram(models.Model):
     _inherit = "sync.project.context"
 
     @api.model
-    def _eval_context_telegram(self, secrets, eval_context):
+    def _eval_context_telegram(self, secrets, eval_context, create_mail_channel=None):
         """Adds telegram object:
         * telegram.sendMessage
         * telegram.setWebhook
@@ -56,7 +56,7 @@ class SyncProjectTelegram(models.Model):
                 secrets.TELEGRAM_BOT_TOKEN, file_path
             )
 
-        def create_mail_сhannel(partners, channel_name):
+        def create_mail_channel(partners, channel_name):
             vals = self.env["mail.channel"]._prepare_multi_livechat_channel_vals(
                 "multi_livechat_telegram", channel_name, partners
             )
@@ -123,10 +123,49 @@ class SyncProjectTelegram(models.Model):
 
         @LogExternalQuery("Telegram-> setWebhook", eval_context)
         def setWebhook(*args, **kwargs):
-            bot.set_webhook(*args, **kwargs)
+            if bot.set_webhook(*args, **kwargs):
+                res = bot.get_webhook_info()
+                data = {
+                    'url': res.url,
+                    'has_custom_certificate': res.has_custom_certificate,
+                    'last_error_message': res.last_error_message,
+                }
+                return data
+
+        def authLogin(*args, **kwargs):
+            token = False
+            if kwargs.get('token'):
+                token = kwargs['token']
+            if args and token:
+                url = args + "?token=%s" % token
+                return url2base64(url)
+            return False
+
+        def login(*args, **kwargs):
+            res_user = token = False
+            if kwargs.get('token'):
+                token = kwargs['token']
+            if token and kwargs.get('user_id'):
+                res_user = self.env['res.users.settings'].search([('telegram_user_id', '=', kwargs['user_id'])])
+                if len(res_user) > 1:
+                    res_user = res_user[0]
+                return res_user.id
+            if token and kwargs.get('odoo_user_id'):
+                res_user = self.env['res.users.settings'].search([('user_id', '=', kwargs['odoo_user_id'])])
+                if res_user:
+                    res_user.write({
+                        'telegram_xml_id': args,
+                        'telegram_user_id': kwargs['user_id'],
+                    })
+                    return res_user.id
+            return False
 
         def parse_data(data):
             return telebot.types.Update.de_json(data)
+
+        def auth_data(data):
+            _logger.info("Login: %s" % data)
+            return {}
 
         multi_livechat_context = AttrDict(
             get_multi_livechat_eval_context(
@@ -143,14 +182,17 @@ class SyncProjectTelegram(models.Model):
                 "getMediaFile": getMediaFile,
                 "getUserPhoto": getUserPhoto,
                 "setWebhook": setWebhook,
+                "authLogin": authLogin,
+                "login": login,
                 "parse_data": parse_data,
-                "create_mail_сhannel": create_mail_сhannel,
+                "auth_data": auth_data,
+                "create_mail_сhannel": create_mail_channel,
                 "MAX_SIZE_IMAGE": MAX_SIZE_IMAGE,
                 "MAX_SIZE_DOCUMENT": MAX_SIZE_DOCUMENT,
                 "MAX_SIZE_TO_DOWNLOAD": MAX_SIZE_TO_DOWNLOAD,
             }
         )
-
+        # _logger.info("TELEGRAM %s\n%s::%s::%s" % (create_mail_channel, telegram, Cleaner,multi_livechat_context))
         return {
             "telegram": telegram,
             "Cleaner": Cleaner,

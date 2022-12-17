@@ -43,27 +43,29 @@ def user2name(user):
     <record id="telegram_project_param_welcome" model="sync.project.text">
         <field name="key">TELEGRAM_WELCOME_MESSAGE</field>
         <field name="initial_value">Hello! How can I help you?</field>
-        <field name="description">
-            Message that is sent to a user on first bot usage
-        </field>
+        <field name="description">Message that is sent to a user on first bot usage</field>
+        <field name="url" eval="" />
+        <field name="project_id" ref="telegram_project" />
+    </record>
+    <record id="telegram_project_param_login" model="sync.project.text">
+        <field name="key">TELEGRAM_LOGIN_MESSAGE</field>
+        <field name="initial_value">Your are not access?
+Please use command /login</field>
+        <field name="description">Message that is sent to a user if not user inside odoo</field>
         <field name="url" eval="" />
         <field name="project_id" ref="telegram_project" />
     </record>
     <record id="telegram_project_param_prefix" model="sync.project.param">
         <field name="key">PARTNER_NAME_TEMPLATE</field>
         <field name="initial_value">%s [Telegram]</field>
-        <field name="description">
-            Template for new partner name. Must have single %s
-        </field>
+        <field name="description">Template for new partner name. Must have single %s</field>
         <field name="url" eval="" />
         <field name="project_id" ref="telegram_project" />
     </record>
     <record id="record-name-prefix_project-parameter" model="sync.project.param">
         <field name="key">CHAT_RECORD_NAME_TEMPLATE</field>
         <field name="initial_value">%s [Telegram]</field>
-        <field name="description">
-            Template for new record name. Must have single %s
-        </field>
+        <field name="description">Template for new record name. Must have single %s</field>
         <field name="url" eval="" />
         <field name="project_id" ref="telegram_project" />
     </record>
@@ -132,14 +134,13 @@ def handle_webhook(httprequest):
   partner_link = get_link(TG_PARTNER_REL, telegram_user_ref)
 
   if not partner_link:
-    partner_image =  telegram.getUserPhoto(telegram_user_ref)
-    partner = env["res.partner"].with_user(main_operator).create({"name": name, "image_1920": partner_image})
-    partner.set_link(TG_PARTNER_REL, telegram_user_ref, sync_date=None, allow_many2many=False)
-    partner_link = get_link(TG_PARTNER_REL, telegram_user_ref)
+    telegram.sendMessage(telegram_user_ref, texts.TELEGRAM_LOGIN_MESSAGE)
 
   if params.WEBHOOK_CHAT != "no":
     if message.text == "/start":
       telegram.sendMessage(telegram_user_ref, texts.TELEGRAM_WELCOME_MESSAGE)
+    elif message.text == "/login":
+        return telegram.authLogin(webhooks.TELEGRAM_AUTH) or None
     elif bool(update.edited_message):
       odoo_message_text = "Contact has edited the message:"
 
@@ -210,6 +211,23 @@ def message_post(is_new, *args, **kwargs):
 
         ]]></field>
     </record>
+    <record id="telegram_task_auth" model="sync.task">
+        <field name="name">Authenticate</field>
+        <field name="active" eval="True" />
+        <field name="project_id" ref="telegram_project" />
+        <field
+            name="code"
+        ><![CDATA[
+def handle_webhook(httprequest):
+  data = json.loads(httprequest.data.decode("utf-8"))
+  log("Raw data: %s" % data, LOG_DEBUG)
+
+  telegram_user_ref = telegram.auth_data(data)
+  data['auth_url'] = telegram.authLogin(webhooks.TELEGRAM_AUTH, data)
+  data['authed'] == telegram.login(data)
+  return data['authed'] and 'OK' or None
+        ]]></field>
+    </record>
     <record id="telegram_trigger_button" model="sync.trigger.button">
         <field name="trigger_name">SETUP_TELEGRAM</field>
         <field name="name">Setup webhooks</field>
@@ -221,5 +239,12 @@ def message_post(is_new, *args, **kwargs):
         <field name="name">Telegram updates</field>
         <field name="sync_task_id" ref="telegram_task_tele2odoo" />
         <field name="webhook_type">json</field>
+    </record>
+    <record id="telegram_trigger_webhook_auth" model="sync.trigger.webhook">
+        <field name="trigger_name">TELEGRAM_AUTH</field>
+        <field name="active" eval="True" />
+        <field name="name">Odoo Authentication</field>
+        <field name="sync_task_id" ref="telegram_task_auth" />
+        <field name="webhook_type">auth</field>
     </record>
 </odoo>

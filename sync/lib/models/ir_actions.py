@@ -6,6 +6,7 @@ from werkzeug import urls
 
 from odoo import api, fields, models
 from odoo.http import request
+from odoo.tools import config
 from odoo.tools.json import scriptsafe as json_scriptsafe
 
 
@@ -20,14 +21,19 @@ class ServerAction(models.Model):
         compute="_compute_website_url",
         help="The full URL to access the server action through the website.",
     )
-    webhook_type = fields.Selection(
-        [("http", "application/x-www-form-urlencoded"), ("json", "application/json")],
+    webhook_type = fields.Selection([
+        ("http", "application/x-www-form-urlencoded"),
+        ("json", "application/json"),
+        ("auth", "application/auth-policy+xml")
+    ],
         string="Webhook Type",
         default="json",
     )
 
     def _get_website_url(self, website_path, webhook_type):
         base_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url")
+        if config.get('proxy_mode', False) and not base_url.startswith('https://') and base_url.find('http://') != -1:
+            base_url = 'https://' + base_url.split('http://')[1]
         link = (
             website_path
             or (self.action_server_id.id and "%d" % self.action_server_id.id)
